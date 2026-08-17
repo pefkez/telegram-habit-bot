@@ -2,3 +2,4 @@
 habits.db
 __pycache__/
 *.pyc
+*.log
