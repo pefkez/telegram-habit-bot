@@ -29,6 +29,32 @@ python bot.py
 
 Данные хранятся в `habits.db` (SQLite, рядом с ботом). Напоминания работают, пока запущен процесс.
 
+## Запуск 24/7 на Oracle Cloud (бесплатно)
+
+На любом VPS бот работает так же, только процесс не выключается. Бот ходит наружу (к Telegram), поэтому открывать порты не нужно — только SSH.
+
+1. Зарегистрируйся на cloud.oracle.com → Create VM instance (Always Free: AMD 1 OCPU/1GB или ARM 4 OCPU/24GB).
+2. Установи Docker:
+   ```
+   sudo apt update && sudo apt install -y docker.io docker-compose-v2
+   sudo systemctl enable --now docker
+   ```
+3. Скопируй проект на сервер (`git clone` или закинь по SCP) и зайди в папку.
+4. Создай `.env` и впиши токен и свой id:
+   ```
+   cp .env.example .env
+   nano .env
+   ```
+5. Запусти:
+   ```
+   sudo docker compose up -d --build
+   ```
+6. Проверь логи: `sudo docker compose logs -f`
+
+База лежит в docker volume `habit_bot_data` и переживает перезапуски и пересборки. Чтобы бот поднялся сам после ребута сервера — в docker-compose уже стоит `restart: unless-stopped`.
+
+Полезно: `sudo docker compose logs --tail 50` — логи, `sudo docker compose restart` — перезапуск.
+
 ## Часовой пояс
 
 По умолчанию `+03:00` для всех пользователей (как в веб-версии habit-tracker).

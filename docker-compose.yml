@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    container_name: telegram-habit-bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - habit_bot_data:/data
+
+volumes:
+  habit_bot_data:
