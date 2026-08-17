@@ -48,7 +48,6 @@ def greet_text_and_kb(user_id: int, today: str):
     lines.append("Отметь выполненные привычки ниже 👇" if left else "🎉 День закрыт! 🔥")
     rows.append(
         [
-            InlineKeyboardButton("⏭️ Пропустить день", callback_data="greet:skipday"),
             InlineKeyboardButton("📊 Статистика", callback_data="greet:stats"),
             InlineKeyboardButton("⚙️ Настройки", callback_data="greet:settings"),
         ]
@@ -119,8 +118,7 @@ HELP = (
     "🔥 <b>Habit Tracker Bot</b>\n\n"
     "Бот пишет тебе сам — жми на привычки и отмечай.\n\n"
     "⚙️ Настройки — добавить/удалить привычку, время напоминания\n"
-    "📊 Статистика — стрики и прогресс\n"
-    "⏭️ Пропустить день — без разрыва стрика\n\n"
+    "📊 Статистика — стрики и прогресс\n\n"
     "/remind 20:00 — задать время\n/remind off — выключить"
 )
 
@@ -318,13 +316,7 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     today = today_key(user["timezone"])
 
-    if text == "⏭ Пропустить":
-        kb = habits_kb(user["id"], "skip", today)
-        if kb.to_dict()["inline_keyboard"]:
-            await update.message.reply_text("⏭ Что пропустить?", reply_markup=kb)
-        else:
-            await update.message.reply_text("👍 Все привычки уже пропущены или отмечены")
-    elif text == "📊 Статистика":
+    if text == "📊 Статистика":
         await update.message.reply_text(stats_text(user))
     elif text == "⚙️ Настройки":
         await update.message.reply_text("⚙️ Настройки", reply_markup=settings_kb(user))
