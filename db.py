@@ -92,7 +92,6 @@ def delete_habit(user_id: int, habit_id: int) -> None:
 
 
 def find_habit(user_id: int, text: str) -> sqlite3.Row | None:
-    """Поиск привычки по номеру из /habits или по имени."""
     habits = list_habits(user_id)
     text = text.strip().lower()
     if text.isdigit():
@@ -106,7 +105,6 @@ def find_habit(user_id: int, text: str) -> sqlite3.Row | None:
 
 
 def checkin(user_id: int, habit_id: int, date: str) -> bool:
-    """Отметить привычку. Возвращает False, если уже отмечена."""
     with get_conn() as conn:
         conn.execute("INSERT OR IGNORE INTO checkins (habit_id, date) VALUES (?, ?)", (habit_id, date))
         return conn.total_changes > 0
@@ -119,7 +117,6 @@ def skip(user_id: int, habit_id: int, date: str) -> bool:
 
 
 def status_for_date(habit_id: int, date: str) -> str:
-    """'done' | 'skip' | 'none'"""
     with get_conn() as conn:
         if conn.execute("SELECT 1 FROM checkins WHERE habit_id = ? AND date = ?", (habit_id, date)).fetchone():
             return "done"
@@ -136,7 +133,6 @@ def covered_dates(habit_id: int) -> tuple[set[str], set[str]]:
 
 
 def user_stats(user_id: int, tz: str) -> dict:
-    """Стрики и прогресс по всем активным привычкам пользователя."""
     today = today_key(tz)
     last30 = set(last_n_days(30, tz))
     week = set(last_n_days(7, tz))
@@ -187,7 +183,6 @@ def user_stats(user_id: int, tz: str) -> dict:
 
 
 def admin_stats(tz: str) -> dict:
-    """Общая статистика по всем пользователям."""
     today = today_key(tz)
     week = set(last_n_days(7, tz))
     month = set(last_n_days(30, tz))
@@ -247,7 +242,6 @@ def admin_stats(tz: str) -> dict:
 
 
 def users_for_reminder() -> list[sqlite3.Row]:
-    """Пользователи, у которых задано время напоминания."""
     with get_conn() as conn:
         return conn.execute("SELECT * FROM users WHERE remind_time IS NOT NULL").fetchall()
 

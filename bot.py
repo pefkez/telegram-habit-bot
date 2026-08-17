@@ -251,7 +251,6 @@ async def cmd_adminstats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def reminder_loop(app: Application) -> None:
-    """Каждую минуту проверяет, кому пора напоминать."""
     while True:
         await asyncio.sleep(60)
         try:

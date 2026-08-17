@@ -5,7 +5,6 @@ TZ_PATTERN = re.compile(r"^([+-])(\d{2}):(\d{2})$")
 
 
 def parse_tz(tz: str) -> int:
-    """Возвращает смещение в минутах от UTC."""
     m = TZ_PATTERN.match((tz or "").strip())
     if not m:
         return 3 * 60
