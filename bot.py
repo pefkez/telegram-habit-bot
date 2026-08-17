@@ -139,8 +139,18 @@ def settings_kb(user) -> InlineKeyboardMarkup:
     )
 
 pending: dict[int, str] = {}
+pending_msg: dict[int, int] = {}
 
 STATS_BACK = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 В меню", callback_data="stats:back")]])
+
+
+async def delete_pair(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, prompt_id: int | None, msg_id: int) -> None:
+    for mid in (prompt_id, msg_id):
+        if mid:
+            try:
+                await ctx.bot.delete_message(chat_id=chat_id, message_id=mid)
+            except Exception:
+                pass
 
 HELP = (
     "🔥 <b>Habit Tracker Bot</b>\n\n"
@@ -331,15 +341,18 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     if state == "awaiting_remind":
         del pending[u.id]
+        prompt_id = pending_msg.pop(u.id, None)
         if text.lower() == "off":
             db.set_remind_time(u.id, None)
             await update.message.reply_text("🔕 Напоминания выключены", reply_markup=settings_kb(user))
+            await delete_pair(ctx, u.id, prompt_id, update.message.message_id)
             return
         if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", text):
             await update.message.reply_text("Формат: 20:00 (или off)")
             return
         db.set_remind_time(u.id, text)
         await update.message.reply_text(f"⏰ Напомню в {text}", reply_markup=settings_kb(user))
+        await delete_pair(ctx, u.id, prompt_id, update.message.message_id)
         return
 
     today = today_key(user["timezone"])
@@ -374,6 +387,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 await q.edit_message_text("😌 Удалять нечего", reply_markup=settings_kb(user))
         elif action == "remind":
             pending[u.id] = "awaiting_remind"
+            pending_msg[u.id] = q.message.message_id
             await q.edit_message_text("⏰ Во сколько напомнить? Формат: 20:00 (или off)")
         elif action == "back":
             await q.message.delete()
