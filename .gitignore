@@ -1,0 +1,4 @@
+.env
+habits.db
+__pycache__/
+*.pyc
