@@ -340,16 +340,18 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if state == "awaiting_remind":
-        del pending[u.id]
         prompt_id = pending_msg.pop(u.id, None)
         if text.lower() == "off":
+            del pending[u.id]
             db.set_remind_time(u.id, None)
             await update.message.reply_text("🔕 Напоминания выключены", reply_markup=settings_kb(user))
             await delete_pair(ctx, u.id, prompt_id, update.message.message_id)
             return
         if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", text):
             await update.message.reply_text("Формат: 20:00 (или off)")
+            await delete_pair(ctx, u.id, prompt_id, update.message.message_id)
             return
+        del pending[u.id]
         db.set_remind_time(u.id, text)
         await update.message.reply_text(f"⏰ Напомню в {text}", reply_markup=settings_kb(user))
         await delete_pair(ctx, u.id, prompt_id, update.message.message_id)
