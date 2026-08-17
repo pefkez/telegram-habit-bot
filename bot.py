@@ -255,6 +255,16 @@ def habits_kb(user_id: int, action: str, today: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def reminder_text_and_kb(user_id: int, today: str):
+    missed = [h for h in db.list_habits(user_id) if db.status_for_date(h["id"], today) == "none"]
+    if not missed:
+        return None, None
+    lines = "\n".join(f"{h['emoji']} {h['name']}" for h in missed)
+    rows = [[InlineKeyboardButton(f"✅ {h['emoji']} {h['name']}", callback_data=f"rem:{h['id']}")] for h in missed]
+    rows.append([InlineKeyboardButton("⏭ Пропустить все", callback_data="rem:skipall")])
+    return f"⏰ Напоминание! Не отмечено {len(missed)}:\n\n{lines}", InlineKeyboardMarkup(rows)
+
+
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     u = update.effective_user
     user = db.get_or_create_user(u.id, u.username, u.first_name)
@@ -362,6 +372,37 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await q.edit_message_text("⚙️ Настройки", reply_markup=settings_kb(user))
         return
 
+    if q.data.startswith("rem:"):
+        today = today_key(user["timezone"])
+        if q.data == "rem:skipall":
+            for h in db.list_habits(user["id"]):
+                if db.status_for_date(h["id"], today) == "none":
+                    db.skip(user["id"], h["id"], today)
+            await q.edit_message_text("⏭ Все пропущены, стрик цел")
+            await ctx.bot.send_message(
+                chat_id=u.id, text="Меню обновлено 👇", reply_markup=build_main_kb(user["id"], user["timezone"])
+            )
+            return
+        habit_id = int(q.data.split(":", 1)[1])
+        habit = next((h for h in db.list_habits(user["id"]) if h["id"] == habit_id), None)
+        if not habit:
+            await q.edit_message_text("🤔 Такой привычки уже нет")
+            return
+        if not db.checkin(user["id"], habit["id"], today):
+            await q.edit_message_text(f"👍 {habit['emoji']} {habit['name']} уже отмечена")
+            return
+        streak = next(
+            (r["current_streak"] for r in db.user_stats(user["id"], user["timezone"])["rows"] if r["habit"]["id"] == habit_id),
+            1,
+        )
+        fire = f" 🔥 {streak} дн. подряд" if streak > 1 else ""
+        text, kb = reminder_text_and_kb(user["id"], today)
+        if kb is None:
+            await q.edit_message_text(f"🎉 Всё отмечено! {habit['emoji']} {habit['name']}{fire}")
+        else:
+            await q.edit_message_text(f"✅ {habit['emoji']} {habit['name']} отмечена!{fire}\n\n{text}", reply_markup=kb)
+        return
+
     action, habit_id = q.data.split(":")
     habit = next((h for h in db.list_habits(user["id"]) if h["id"] == int(habit_id)), None)
     if not habit:
@@ -448,14 +489,10 @@ async def reminder_loop(app: Application) -> None:
                 if u["last_reminded"] == today:
                     continue
                 habits = db.list_habits(u["id"])
-                missed = [h for h in habits if db.status_for_date(h["id"], today) == "none"]
-                if not missed:
+                text, kb = reminder_text_and_kb(u["id"], today)
+                if kb is None:
                     continue
-                lines = "\n".join(f"{h['emoji']} {h['name']}" for h in missed)
-                await app.bot.send_message(
-                    chat_id=u["telegram_id"],
-                    text=f"⏰ Напоминание! Не отмечено {len(missed)}:\n\n{lines}\n\nЖми ✅ Отметить 👇",
-                )
+                await app.bot.send_message(chat_id=u["telegram_id"], text=text, reply_markup=kb)
                 db.set_last_reminded(u["telegram_id"], today)
                 log.info("reminder sent to %s", u["telegram_id"])
         except Exception:
