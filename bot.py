@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import socket
+import time
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
@@ -138,6 +139,8 @@ def settings_kb(user) -> InlineKeyboardMarkup:
     )
 
 pending: dict[int, str] = {}
+
+STATS_BACK = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 В меню", callback_data="stats:back")]])
 
 HELP = (
     "🔥 <b>Habit Tracker Bot</b>\n\n"
@@ -294,7 +297,7 @@ async def cmd_remind(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     u = update.effective_user
     user = db.get_or_create_user(u.id, u.username, u.first_name)
-    await update.message.reply_text(stats_text(user))
+    await update.message.reply_text(stats_text(user), reply_markup=STATS_BACK)
 
 
 def habits_kb(user_id: int, action: str, today: str) -> InlineKeyboardMarkup:
@@ -342,7 +345,7 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     today = today_key(user["timezone"])
 
     if text == "📊 Статистика":
-        await update.message.reply_text(stats_text(user))
+        await update.message.reply_text(stats_text(user), reply_markup=STATS_BACK)
     elif text == "⚙️ Настройки":
         await update.message.reply_text("⚙️ Настройки", reply_markup=settings_kb(user))
 
@@ -352,6 +355,11 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await q.answer()
     u = q.from_user
     user = db.get_or_create_user(u.id, u.username, u.first_name)
+
+    if q.data == "stats:back":
+        await q.answer()
+        await q.message.delete()
+        return
 
     if q.data.startswith("set:"):
         action = q.data.split(":", 1)[1]
@@ -381,7 +389,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await q.answer("⏭ День пропущен")
         elif action == "stats":
             await q.answer()
-            await q.message.reply_text(stats_text(user))
+            await q.message.reply_text(stats_text(user), reply_markup=STATS_BACK)
             return
         elif action == "settings":
             await q.answer()
@@ -507,24 +515,32 @@ def main() -> None:
     if not ADMIN_ID:
         log.warning("ADMIN_ID не задан — команда /adminstats будет недоступна (узнай свой id у @userinfobot)")
 
-    db.init_db()
-    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+    while True:
+        try:
+            db.init_db()
+            app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CommandHandler("add", cmd_add))
-    app.add_handler(CommandHandler("habits", cmd_habits))
-    app.add_handler(CommandHandler("done", cmd_done))
-    app.add_handler(CommandHandler("skip", cmd_skip))
-    app.add_handler(CommandHandler("del", cmd_del))
-    app.add_handler(CommandHandler("remind", cmd_remind))
-    app.add_handler(CommandHandler("stats", cmd_stats))
-    app.add_handler(CommandHandler("adminstats", cmd_adminstats))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    app.add_handler(CallbackQueryHandler(on_callback))
+            app.add_handler(CommandHandler("start", cmd_start))
+            app.add_handler(CommandHandler("help", cmd_help))
+            app.add_handler(CommandHandler("add", cmd_add))
+            app.add_handler(CommandHandler("habits", cmd_habits))
+            app.add_handler(CommandHandler("done", cmd_done))
+            app.add_handler(CommandHandler("skip", cmd_skip))
+            app.add_handler(CommandHandler("del", cmd_del))
+            app.add_handler(CommandHandler("remind", cmd_remind))
+            app.add_handler(CommandHandler("stats", cmd_stats))
+            app.add_handler(CommandHandler("adminstats", cmd_adminstats))
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+            app.add_handler(CallbackQueryHandler(on_callback))
 
-    log.info("бот запущен")
-    app.run_polling()
+            log.info("бот запущен")
+            app.run_polling()
+        except KeyboardInterrupt:
+            log.info("остановлен")
+            break
+        except Exception:
+            log.exception("бот упал, перезапуск через 10 сек")
+            time.sleep(10)
 
 
 if __name__ == "__main__":
