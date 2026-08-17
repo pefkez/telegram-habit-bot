@@ -275,6 +275,10 @@ async def reminder_loop(app: Application) -> None:
             log.exception("reminder loop error")
 
 
+async def post_init(app: Application) -> None:
+    asyncio.create_task(reminder_loop(app))
+
+
 def main() -> None:
     if not BOT_TOKEN:
         log.error("BOT_TOKEN не задан. Скопируй .env.example в .env и вставь токен от @BotFather")
@@ -283,7 +287,7 @@ def main() -> None:
         log.warning("ADMIN_ID не задан — команда /adminstats будет недоступна (узнай свой id у @userinfobot)")
 
     db.init_db()
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
@@ -295,11 +299,6 @@ def main() -> None:
     app.add_handler(CommandHandler("remind", cmd_remind))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("adminstats", cmd_adminstats))
-
-    app.job_queue.run_once(
-        lambda ctx: asyncio.create_task(reminder_loop(app)),
-        when=1,
-    )
 
     log.info("бот запущен")
     app.run_polling()
