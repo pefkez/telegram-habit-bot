@@ -33,32 +33,39 @@ def habit_title(h) -> str:
     emoji = "" if h["emoji"] == "✅" else h["emoji"]
     return f"{emoji} {h['name']}".strip()
 
-def greet_text_and_kb(user_id: int, today: str):
+WEEKDAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+MONTHS_GEN = ["", "января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+
+
+def greet_text_and_kb(user_id: int, today: str, tz: str):
     habits = db.list_habits(user_id)
     rows = []
     if not habits:
         text = "👋 Привет!\n\n😴 Привычек пока нет.\nДобавь первую: ⚙️ Настройки → ➕ Добавить привычку"
         rows.append([InlineKeyboardButton("⚙️ Настройки", callback_data="greet:settings")])
         return text, InlineKeyboardMarkup(rows)
-    lines = []
+    streaks = {r["habit"]["id"]: r["current_streak"] for r in db.user_stats(user_id, tz)["rows"]}
+    d = datetime.strptime(today, "%Y-%m-%d")
+    lines = ["👋 Привет!", "", f"📆 {WEEKDAYS[d.weekday()]} · {d.day} {MONTHS_GEN[d.month]}", ""]
     left = 0
     for h in habits:
         status = db.status_for_date(h["id"], today)
         mark = {"done": "🟢", "skip": "⏭", "none": "🔴"}[status]
-        lines.append(f"{mark} {habit_title(h)}")
+        streak = streaks.get(h["id"], 0)
+        fire = f" · 🔥 {streak}" if streak > 1 and status != "none" else ""
+        lines.append(f"{mark} {habit_title(h)}{fire}")
         if status == "none":
             left += 1
         rows.append([InlineKeyboardButton(f"{mark} {habit_title(h)}", callback_data=f"greet:{h['id']}")])
     lines.append("")
-    lines.append("Отметь выполненные привычки ниже 👇" if left else "🎉 День закрыт! 🔥")
+    lines.append("Отметь выполненные привычки ниже 👇" if left else "🎉 Всё отмечено!")
     rows.append(
         [
             InlineKeyboardButton("📊 Статистика", callback_data="greet:stats"),
             InlineKeyboardButton("⚙️ Настройки", callback_data="greet:settings"),
         ]
     )
-    text = "👋 Привет!\n\n🔥 Сегодня\n\n" + "\n".join(lines)
-    return text, InlineKeyboardMarkup(rows)
+    return "\n".join(lines), InlineKeyboardMarkup(rows)
 
 
 MONTHS = ["", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
@@ -146,7 +153,7 @@ def parse_emoji_and_name(raw: str) -> tuple[str, str]:
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     u = update.effective_user
     user = db.get_or_create_user(u.id, u.username, u.first_name)
-    text, kb = greet_text_and_kb(user["id"], today_key(user["timezone"]))
+    text, kb = greet_text_and_kb(user["id"], today_key(user["timezone"]), user["timezone"])
     await update.message.reply_text(text, reply_markup=kb)
 
 
@@ -302,7 +309,7 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return
         habit = db.add_habit(user["id"], name, emoji)
         await update.message.reply_text(f"✅ Добавлено: {habit_title(habit)}")
-        text, kb = greet_text_and_kb(user["id"], today_key(user["timezone"]))
+        text, kb = greet_text_and_kb(user["id"], today_key(user["timezone"]), user["timezone"])
         await update.message.reply_text(text, reply_markup=kb)
         return
 
@@ -381,7 +388,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                     1,
                 )
                 await q.answer(f"✅ Отмечено! 🔥 {streak} дн." if streak > 1 else "✅ Отмечено!")
-        text, kb = greet_text_and_kb(user["id"], today)
+        text, kb = greet_text_and_kb(user["id"], today, user["timezone"])
         await q.edit_message_text(text, reply_markup=kb)
         return
 
@@ -410,12 +417,12 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return
         db.skip(user["id"], habit["id"], today)
         await q.edit_message_text(f"⏭ {habit_title(habit)} — пропущена, стрик цел")
-        text, kb = greet_text_and_kb(user["id"], today)
+        text, kb = greet_text_and_kb(user["id"], today, user["timezone"])
         await ctx.bot.send_message(chat_id=u.id, text=text, reply_markup=kb)
     elif action == "del":
         db.delete_habit(user["id"], habit["id"])
         await q.edit_message_text(f"🗑 Удалено: {habit_title(habit)}")
-        text, kb = greet_text_and_kb(user["id"], today)
+        text, kb = greet_text_and_kb(user["id"], today, user["timezone"])
         await ctx.bot.send_message(chat_id=u.id, text=text, reply_markup=kb)
 
 
@@ -468,7 +475,7 @@ async def reminder_loop(app: Application) -> None:
                 today = today_key(u["timezone"])
                 if u["last_reminded"] == today:
                     continue
-                text, kb = greet_text_and_kb(u["id"], today)
+                text, kb = greet_text_and_kb(u["id"], today, u["timezone"])
                 await app.bot.send_message(chat_id=u["telegram_id"], text=text, reply_markup=kb)
                 db.set_last_reminded(u["telegram_id"], today)
                 log.info("reminder sent to %s", u["telegram_id"])
