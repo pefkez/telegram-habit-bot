@@ -90,8 +90,7 @@ def month_calendar(habit_id: int, tz: str, today: str) -> str:
     year, month = d.year, d.month
     next_month = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
     days_in_month = (next_month - timedelta(days=1)).day
-    leading = datetime(year, month, 1).weekday()
-    cells = ["  ·"] * leading
+    cells = []
     for day in range(1, days_in_month + 1):
         key = f"{year}-{month:02d}-{day:02d}"
         if key > today:
