@@ -80,10 +80,11 @@ def month_calendar(habit_id: int, tz: str, today: str) -> str:
     cells = ["    "] * leading
     for day in range(1, days_in_month + 1):
         key = f"{year}-{month:02d}-{day:02d}"
-        if key > today or db.status_for_date(habit_id, key) == "none":
-            cells.append("○   ")
+        if key > today:
+            mark = "🔘"
         else:
-            cells.append("●   ")
+            mark = {"done": "🟢", "skip": "🔘", "none": "🔴"}[db.status_for_date(habit_id, key)]
+        cells.append(f"{mark}  ")
     header = "".join(f"{d:<4}" for d in ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"])
     lines = [header]
     for i in range(0, len(cells), 7):
@@ -109,7 +110,7 @@ def stats_text(user) -> str:
         lines.append("")
         lines.append(month_calendar(h["id"], user["timezone"], today))
         lines.append("")
-    lines.append("● выполнено · ○ не выполнено")
+    lines.append("🟢 выполнено · 🔴 не выполнено · 🔘 ещё не наступил")
     return "\n".join(lines)
 
 
