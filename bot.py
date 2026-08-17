@@ -57,12 +57,12 @@ def greet_text_and_kb(user_id: int, today: str, tz: str):
     habits = db.list_habits(user_id)
     rows = []
     if not habits:
-        text = "👋 Привет!\n\n😴 Привычек пока нет.\nДобавь первую: ⚙️ Настройки → ➕ Добавить привычку"
+        text = "😴 Привычек пока нет.\nДобавь первую: ⚙️ Настройки → ➕ Добавить привычку"
         rows.append([InlineKeyboardButton("⚙️ Настройки", callback_data="greet:settings")])
         return text, InlineKeyboardMarkup(rows)
     streaks = {r["habit"]["id"]: r["current_streak"] for r in db.user_stats(user_id, tz)["rows"]}
     d = datetime.strptime(today, "%Y-%m-%d")
-    lines = ["👋 Привет!", "", f"📆 {WEEKDAYS[d.weekday()]} · {d.day} {MONTHS_GEN[d.month]}", ""]
+    lines = [f"📆 {WEEKDAYS[d.weekday()]} · {d.day} {MONTHS_GEN[d.month]}", ""]
     left = 0
     for h in habits:
         status = db.status_for_date(h["id"], today)
