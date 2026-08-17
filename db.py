@@ -100,6 +100,14 @@ def delete_habit(user_id: int, habit_id: int) -> None:
         conn.execute("DELETE FROM habits WHERE id = ? AND user_id = ?", (habit_id, user_id))
 
 
+def update_habit(user_id: int, habit_id: int, name: str, emoji: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE habits SET name = ?, emoji = ? WHERE id = ? AND user_id = ?",
+            (name, emoji, habit_id, user_id),
+        )
+
+
 def find_habit(user_id: int, text: str) -> sqlite3.Row | None:
     habits = list_habits(user_id)
     text = text.strip().lower()

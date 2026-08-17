@@ -78,6 +78,7 @@ def greet_text_and_kb(user_id: int, today: str, tz: str):
     rows.append(
         [
             InlineKeyboardButton("📊 Статистика", callback_data="greet:stats"),
+            InlineKeyboardButton("📈 Неделя", callback_data="greet:week"),
             InlineKeyboardButton("⚙️ Настройки", callback_data="greet:settings"),
         ]
     )
@@ -128,12 +129,55 @@ def stats_text(user) -> str:
     return "\n".join(lines)
 
 
+def week_report_text(user) -> str:
+    stats = db.user_stats(user["id"], user["timezone"])
+    rows = stats["rows"]
+    if not rows:
+        return "😴 Добавь привычку — появится отчёт: ⚙️ Настройки → ➕ Добавить"
+    d = datetime.strptime(stats["today"], "%Y-%m-%d")
+    monday = d - timedelta(days=d.weekday())
+    days = [monday + timedelta(days=i) for i in range(7)]
+    sun = days[6]
+    if monday.month == sun.month:
+        period = f"{monday.day} – {sun.day} {MONTHS_GEN[monday.month]}"
+    else:
+        period = f"{monday.day} {MONTHS_GEN[monday.month]} – {sun.day} {MONTHS_GEN[sun.month]}"
+    lines = [f"📈 Неделя · {period}", ""]
+    total_done = total_all = 0
+    for r in rows:
+        h = r["habit"]
+        marks = []
+        done = eligible = 0
+        for day in days:
+            key = day.strftime("%Y-%m-%d")
+            if key > stats["today"]:
+                marks.append("🔘")
+            else:
+                eligible += 1
+                st = db.status_for_date(h["id"], key)
+                if st == "done":
+                    done += 1
+                    marks.append("🟢")
+                elif st == "skip":
+                    marks.append("⏭")
+                else:
+                    marks.append("🔴")
+        total_done += done
+        total_all += eligible
+        lines.append(f"{habit_title(h)} · {done}/{eligible}")
+        lines.append(" ".join(marks))
+        lines.append("")
+    lines.append(f"Итого: {total_done}/{total_all} · {round(total_done * 100 / max(total_all, 1))}%")
+    return "\n".join(lines)
+
+
 def settings_kb(user) -> InlineKeyboardMarkup:
     cur = user["remind_time"] or "выкл"
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("➕ Добавить привычку", callback_data="set:add")],
             [InlineKeyboardButton("🗑 Удалить привычку", callback_data="set:del")],
+            [InlineKeyboardButton("✏️ Редактировать", callback_data="set:edit")],
             [InlineKeyboardButton(f"⏰ Напоминание: {cur}", callback_data="set:remind")],
             [InlineKeyboardButton("🔙 В меню", callback_data="set:back")],
         ]
@@ -141,8 +185,10 @@ def settings_kb(user) -> InlineKeyboardMarkup:
 
 pending: dict[int, str] = {}
 pending_msg: dict[int, int] = {}
+pending_habit: dict[int, int] = {}
 
 STATS_BACK = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 В меню", callback_data="stats:back")]])
+WEEK_BACK = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 В меню", callback_data="week:back")]])
 
 
 async def delete_pair(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, prompt_id: int | None, msg_id: int) -> None:
@@ -354,6 +400,20 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await send_greeting(ctx.bot, user)
         return
 
+    if state == "awaiting_edit":
+        prompt_id = pending_msg.pop(u.id, None)
+        habit_id = pending_habit.pop(u.id, None)
+        emoji, name = parse_emoji_and_name(text)
+        if not name:
+            await update.message.reply_text("✏️ Напиши название, например 🏃 Бег")
+            await delete_pair(ctx, u.id, prompt_id, update.message.message_id)
+            return
+        del pending[u.id]
+        db.update_habit(user["id"], habit_id, name, emoji)
+        await delete_pair(ctx, u.id, prompt_id, update.message.message_id)
+        await send_greeting(ctx.bot, user)
+        return
+
     if state == "awaiting_remind":
         prompt_id = pending_msg.pop(u.id, None)
         if text.lower() == "off":
@@ -391,6 +451,11 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await q.message.delete()
         return
 
+    if q.data == "week:back":
+        await q.answer()
+        await q.message.delete()
+        return
+
     if q.data.startswith("set:"):
         action = q.data.split(":", 1)[1]
         if action == "add":
@@ -403,6 +468,12 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 await q.edit_message_text("🗑 Что удалить?", reply_markup=kb)
             else:
                 await q.edit_message_text("😌 Удалять нечего", reply_markup=settings_kb(user))
+        elif action == "edit":
+            kb = habits_kb(user["id"], "edit", today_key(user["timezone"]))
+            if kb.to_dict()["inline_keyboard"]:
+                await q.edit_message_text("✏️ Что изменить?", reply_markup=kb)
+            else:
+                await q.edit_message_text("😌 Изменять нечего", reply_markup=settings_kb(user))
         elif action == "remind":
             pending[u.id] = "awaiting_remind"
             pending_msg[u.id] = q.message.message_id
@@ -422,6 +493,10 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         elif action == "stats":
             await q.answer()
             await q.message.reply_text(stats_text(user), reply_markup=STATS_BACK)
+            return
+        elif action == "week":
+            await q.answer()
+            await q.message.reply_text(week_report_text(user), reply_markup=WEEK_BACK)
             return
         elif action == "settings":
             await q.answer()
@@ -471,6 +546,11 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         db.skip(user["id"], habit["id"], today)
         await q.edit_message_text(f"⏭ {habit_title(habit)} — пропущена, стрик цел")
         await send_greeting(ctx.bot, user)
+    elif action == "edit":
+        pending[u.id] = "awaiting_edit"
+        pending_habit[u.id] = habit["id"]
+        pending_msg[u.id] = q.message.message_id
+        await q.edit_message_text(f"✏️ Новое название для {habit_title(habit)}\n(можно с эмодзи в начале)")
     elif action == "del":
         db.delete_habit(user["id"], habit["id"])
         await q.message.delete()
