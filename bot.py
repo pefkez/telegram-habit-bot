@@ -77,17 +77,17 @@ def month_calendar(habit_id: int, tz: str, today: str) -> str:
     next_month = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
     days_in_month = (next_month - timedelta(days=1)).day
     leading = datetime(year, month, 1).weekday()
-    cells = [" "] * leading
+    cells = ["    "] * leading
     for day in range(1, days_in_month + 1):
         key = f"{year}-{month:02d}-{day:02d}"
-        if key > today:
-            mark = "🔘"
+        if key > today or db.status_for_date(habit_id, key) == "none":
+            cells.append("○   ")
         else:
-            mark = {"done": "🟢", "skip": "⏭", "none": "🔴"}[db.status_for_date(habit_id, key)]
-        cells.append(mark)
-    lines = ["ПН ВТ СР ЧТ ПТ СБ ВС"]
+            cells.append("●   ")
+    header = "".join(f"{d:<4}" for d in ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"])
+    lines = [header]
     for i in range(0, len(cells), 7):
-        lines.append(" ".join(cells[i : i + 7]))
+        lines.append("".join(cells[i : i + 7]))
     return "\n".join(lines)
 
 
@@ -104,12 +104,12 @@ def stats_text(user) -> str:
         lines.append(
             f"{habit_title(h)}\n"
             f"🔥 Стрик: {r['current_streak']} дн. · 🏆 Рекорд: {r['best_streak']} дн.\n"
-            f"⏭ Пропусков: {r['skips30']} · ✅ Отметок: {r['done30']}/30"
+            f"✅ Отметок: {r['done30']}/30"
         )
         lines.append("")
         lines.append(month_calendar(h["id"], user["timezone"], today))
         lines.append("")
-    lines.append("🟢 выполнено · 🔴 не выполнено · 🔘 ещё не наступил")
+    lines.append("● выполнено · ○ не выполнено")
     return "\n".join(lines)
 
 
