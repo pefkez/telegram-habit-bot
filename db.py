@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS habits (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name       TEXT NOT NULL,
-  emoji      TEXT NOT NULL DEFAULT '✅',
+  emoji      TEXT NOT NULL DEFAULT '',
   active     INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
