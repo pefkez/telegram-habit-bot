@@ -70,7 +70,7 @@ def month_calendar(habit_id: int, tz: str, today: str) -> str:
     for day in range(1, days_in_month + 1):
         key = f"{year}-{month:02d}-{day:02d}"
         if key > today:
-            mark = "⬜"
+            mark = "🔘"
         else:
             mark = {"done": "🟢", "skip": "⏭", "none": "🔴"}[db.status_for_date(habit_id, key)]
         cells.append(f"{day:>2}{mark}")
@@ -98,7 +98,7 @@ def stats_text(user) -> str:
         lines.append("")
         lines.append(month_calendar(h["id"], user["timezone"], today))
         lines.append("")
-    lines.append("🟢 выполнено · 🔴 не выполнено · ⏭ пропущено · ⬜ ещё не наступил")
+    lines.append("🟢 выполнено · 🔴 не выполнено · ⏭ пропущено · 🔘 ещё не наступил")
     return "\n".join(lines)
 
 
@@ -452,7 +452,7 @@ async def cmd_adminstats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         name = x["username"] or x["first_name"] or f"id{x['telegram_id']}"
         tag = f"@{name}" if x["username"] else name
         last = s["last_checkin"].get(x["id"], "—")
-        active = "✅" if x["id"] in s["active_today"] else ("🟣" if x["id"] in s["active_week"] else "⬜")
+        active = "✅" if x["id"] in s["active_today"] else ("🟣" if x["id"] in s["active_week"] else "🔘")
         lines.append(
             f"{active} {tag} — привычек: {s['habit_count'].get(x['id'], 0)}, "
             f"отметок: {s['checkin_count'].get(x['id'], 0)}, последняя: {last}"
