@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+import socket
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
@@ -25,6 +26,18 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", 0) or 0)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
+
+API_PIN = os.getenv("TELEGRAM_API_IP", "")
+if API_PIN:
+    _real_getaddrinfo = socket.getaddrinfo
+
+    def _pinned_getaddrinfo(host, *args, **kwargs):
+        h = host.decode() if isinstance(host, bytes) else host
+        if h == "api.telegram.org":
+            host = API_PIN
+        return _real_getaddrinfo(host, *args, **kwargs)
+
+    socket.getaddrinfo = _pinned_getaddrinfo
 
 EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF]")
 
