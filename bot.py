@@ -152,6 +152,20 @@ async def delete_pair(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, prompt_id: i
             except Exception:
                 pass
 
+
+async def send_greeting(bot, user, today: str | None = None):
+    today = today or today_key(user["timezone"])
+    text, kb = greet_text_and_kb(user["id"], today, user["timezone"])
+    prev = db.get_last_greeting(user["telegram_id"])
+    if prev and prev["last_greeting_date"] == today and prev["last_greeting_msg_id"]:
+        try:
+            await bot.delete_message(chat_id=user["telegram_id"], message_id=prev["last_greeting_msg_id"])
+        except Exception:
+            pass
+    msg = await bot.send_message(chat_id=user["telegram_id"], text=text, reply_markup=kb)
+    db.set_last_greeting(user["telegram_id"], today, msg.message_id)
+    return msg
+
 HELP = (
     "🔥 <b>Habit Tracker Bot</b>\n\n"
     "Бот пишет тебе сам — жми на привычки и отмечай.\n\n"
@@ -179,8 +193,7 @@ def parse_emoji_and_name(raw: str) -> tuple[str, str]:
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     u = update.effective_user
     user = db.get_or_create_user(u.id, u.username, u.first_name)
-    text, kb = greet_text_and_kb(user["id"], today_key(user["timezone"]), user["timezone"])
-    await update.message.reply_text(text, reply_markup=kb)
+    await send_greeting(ctx.bot, user)
 
 
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -337,8 +350,7 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         del pending[u.id]
         db.add_habit(user["id"], name, emoji)
         await delete_pair(ctx, u.id, prompt_id, update.message.message_id)
-        text, kb = greet_text_and_kb(user["id"], today_key(user["timezone"]), user["timezone"])
-        await update.message.reply_text(text, reply_markup=kb)
+        await send_greeting(ctx.bot, user)
         return
 
     if state == "awaiting_remind":
@@ -457,13 +469,11 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return
         db.skip(user["id"], habit["id"], today)
         await q.edit_message_text(f"⏭ {habit_title(habit)} — пропущена, стрик цел")
-        text, kb = greet_text_and_kb(user["id"], today, user["timezone"])
-        await ctx.bot.send_message(chat_id=u.id, text=text, reply_markup=kb)
+        await send_greeting(ctx.bot, user)
     elif action == "del":
         db.delete_habit(user["id"], habit["id"])
         await q.message.delete()
-        text, kb = greet_text_and_kb(user["id"], today, user["timezone"])
-        await ctx.bot.send_message(chat_id=u.id, text=text, reply_markup=kb)
+        await send_greeting(ctx.bot, user)
 
 
 async def cmd_adminstats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -515,8 +525,7 @@ async def reminder_loop(app: Application) -> None:
                 today = today_key(u["timezone"])
                 if u["last_reminded"] == today:
                     continue
-                text, kb = greet_text_and_kb(u["id"], today, u["timezone"])
-                await app.bot.send_message(chat_id=u["telegram_id"], text=text, reply_markup=kb)
+                await send_greeting(app.bot, u, today)
                 db.set_last_reminded(u["telegram_id"], today)
                 log.info("reminder sent to %s", u["telegram_id"])
         except Exception:

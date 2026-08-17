@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS users (
   timezone      TEXT NOT NULL DEFAULT '+03:00',
   remind_time   TEXT,
   created_at    TEXT NOT NULL,
-  last_reminded TEXT
+  last_reminded TEXT,
+  last_greeting_date TEXT,
+  last_greeting_msg_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS habits (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,6 +53,11 @@ def get_conn() -> sqlite3.Connection:
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        for col in ("last_greeting_date TEXT", "last_greeting_msg_id INTEGER"):
+            try:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
 
 
 def get_or_create_user(telegram_id: int, username: str | None, first_name: str | None) -> sqlite3.Row:
@@ -251,3 +258,18 @@ def users_for_reminder() -> list[sqlite3.Row]:
 def set_last_reminded(telegram_id: int, date: str) -> None:
     with get_conn() as conn:
         conn.execute("UPDATE users SET last_reminded = ? WHERE telegram_id = ?", (date, telegram_id))
+
+
+def get_last_greeting(telegram_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT last_greeting_date, last_greeting_msg_id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+
+
+def set_last_greeting(telegram_id: int, date: str, msg_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE users SET last_greeting_date = ?, last_greeting_msg_id = ? WHERE telegram_id = ?",
+            (date, msg_id, telegram_id),
+        )
