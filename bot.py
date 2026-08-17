@@ -29,27 +29,34 @@ EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U
 
 MAIN_KB = ReplyKeyboardMarkup(
     [
-        ["➕ Добавить", "✅ Отметить", "⏭ Пропустить"],
-        ["📋 Привычки", "📊 Статистика"],
-        ["🗑 Удалить", "⏰ Напоминание"],
+        ["✅ Отметить", "⏭ Пропустить", "📊 Статистика"],
+        ["📋 Привычки", "⚙️ Настройки"],
     ],
     resize_keyboard=True,
 )
+
+
+def settings_kb(user) -> InlineKeyboardMarkup:
+    cur = user["remind_time"] or "выкл"
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("➕ Добавить привычку", callback_data="set:add")],
+            [InlineKeyboardButton("🗑 Удалить привычку", callback_data="set:del")],
+            [InlineKeyboardButton(f"⏰ Напоминание: {cur}", callback_data="set:remind")],
+            [InlineKeyboardButton("🔙 В меню", callback_data="set:back")],
+        ]
+    )
 
 pending: dict[int, str] = {}
 
 HELP = (
     "🔥 <b>Habit Tracker Bot</b>\n\n"
-    "Привычки:\n"
-    "/add 🏃 Бег — добавить привычку (эмодзи необязателен)\n"
-    "/habits — список привычек на сегодня\n"
-    "/done 1 — отметить сегодня (номер или название, /done all — всё)\n"
-    "/skip 1 — пропустить день без разрыва стрика\n"
-    "/del 1 — удалить привычку\n\n"
-    "Прогресс:\n"
-    "/stats — стрики и статистика\n"
-    "/remind 20:00 — напоминание в это время (выключить: /remind off)\n\n"
-    "/help — эта справка"
+    "Кнопки внизу — всё управление:\n"
+    "✅ Отметить — отметить выполнение\n"
+    "⏭ Пропустить — пропустить день без разрыва стрика\n"
+    "📊 Статистика — стрики и прогресс\n"
+    "📋 Привычки — список на сегодня\n"
+    "⚙️ Настройки — добавить/удалить привычку, время напоминания"
 )
 
 
@@ -254,27 +261,26 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("✏️ Напиши название, например 🏃 Бег")
             return
         habit = db.add_habit(user["id"], name, emoji)
-        await update.message.reply_text(f"✅ Добавлено: {habit['emoji']} {habit['name']}")
+        await update.message.reply_text(
+            f"✅ Добавлено: {habit['emoji']} {habit['name']}", reply_markup=settings_kb(user)
+        )
         return
 
     if state == "awaiting_remind":
         del pending[u.id]
         if text.lower() == "off":
             db.set_remind_time(u.id, None)
-            await update.message.reply_text("🔕 Напоминания выключены")
+            await update.message.reply_text("🔕 Напоминания выключены", reply_markup=settings_kb(user))
             return
         if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", text):
             await update.message.reply_text("Формат: 20:00 (или off)")
             return
         db.set_remind_time(u.id, text)
-        await update.message.reply_text(f"⏰ Напомню в {text}")
+        await update.message.reply_text(f"⏰ Напомню в {text}", reply_markup=settings_kb(user))
         return
 
     today = today_key(user["timezone"])
-    if text == "➕ Добавить":
-        pending[u.id] = "awaiting_add"
-        await update.message.reply_text("✏️ Напиши название привычки, например 🏃 Бег")
-    elif text == "✅ Отметить":
+    if text == "✅ Отметить":
         kb = habits_kb(user["id"], "done", today)
         if kb.to_dict()["inline_keyboard"]:
             await update.message.reply_text("✅ Что отметил?", reply_markup=kb)
@@ -289,19 +295,19 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     elif text == "📋 Привычки":
         habits = db.list_habits(user["id"])
         if not habits:
-            await update.message.reply_text("😴 Пока пусто. Жми ➕ Добавить")
+            await update.message.reply_text("😴 Пока пусто. Зайди в ⚙️ Настройки → ➕ Добавить")
             return
         lines = []
         for i, h in enumerate(habits, 1):
             status = db.status_for_date(h["id"], today)
             mark = {"done": "✅", "skip": "⏭", "none": "⬜"}[status]
             lines.append(f"{i}. {mark} {h['emoji']} {h['name']}")
-        await update.message.reply_text(f"📋 Привычки ({today}):\n\n" + "\n".join(lines))
+        await update.message.reply_text(f"📋 Твои привычки ({today}):\n\n" + "\n".join(lines))
     elif text == "📊 Статистика":
         stats = db.user_stats(user["id"], user["timezone"])
         rows = stats["rows"]
         if not rows:
-            await update.message.reply_text("😴 Добавь привычку — появится статистика: ➕ Добавить")
+            await update.message.reply_text("😴 Добавь привычку — появится статистика: ⚙️ Настройки → ➕ Добавить")
             return
         week_done = sum(r["done7"] for r in rows)
         week_total = 7 * len(rows)
@@ -317,15 +323,8 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 f"📅 за 30 дн.: {r['done30']}/30 · ⏭ пропусков: {r['skips30']}"
             )
         await update.message.reply_text("\n".join(lines))
-    elif text == "🗑 Удалить":
-        kb = habits_kb(user["id"], "del", today)
-        if kb.to_dict()["inline_keyboard"]:
-            await update.message.reply_text("🗑 Что удалить?", reply_markup=kb)
-        else:
-            await update.message.reply_text("😌 Удалять нечего")
-    elif text == "⏰ Напоминание":
-        pending[u.id] = "awaiting_remind"
-        await update.message.reply_text("⏰ Во сколько напомнить? Формат: 20:00 (или off)")
+    elif text == "⚙️ Настройки":
+        await update.message.reply_text("⚙️ Настройки", reply_markup=settings_kb(user))
 
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -333,6 +332,25 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await q.answer()
     u = q.from_user
     user = db.get_or_create_user(u.id, u.username, u.first_name)
+
+    if q.data.startswith("set:"):
+        action = q.data.split(":", 1)[1]
+        if action == "add":
+            pending[u.id] = "awaiting_add"
+            await q.edit_message_text("✏️ Напиши название привычки, например 🏃 Бег")
+        elif action == "del":
+            kb = habits_kb(user["id"], "del", today_key(user["timezone"]))
+            if kb.to_dict()["inline_keyboard"]:
+                await q.edit_message_text("🗑 Что удалить?", reply_markup=kb)
+            else:
+                await q.edit_message_text("😌 Удалять нечего", reply_markup=settings_kb(user))
+        elif action == "remind":
+            pending[u.id] = "awaiting_remind"
+            await q.edit_message_text("⏰ Во сколько напомнить? Формат: 20:00 (или off)")
+        elif action == "back":
+            await q.edit_message_text("⚙️ Настройки", reply_markup=settings_kb(user))
+        return
+
     action, habit_id = q.data.split(":")
     habit = next((h for h in db.list_habits(user["id"]) if h["id"] == int(habit_id)), None)
     if not habit:
