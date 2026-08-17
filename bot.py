@@ -27,13 +27,21 @@ log = logging.getLogger(__name__)
 
 EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF]")
 
-MAIN_KB = ReplyKeyboardMarkup(
-    [
-        ["✅ Отметить", "⏭ Пропустить", "📊 Статистика"],
-        ["📋 Привычки", "⚙️ Настройки"],
-    ],
-    resize_keyboard=True,
-)
+def build_main_kb(user_id: int, tz: str) -> ReplyKeyboardMarkup:
+    today = today_key(tz)
+    rows = []
+    row: list[str] = []
+    for h in db.list_habits(user_id):
+        status = db.status_for_date(h["id"], today)
+        prefix = {"done": "✅", "skip": "⏭", "none": h["emoji"]}[status]
+        row.append(f"{prefix} {h['name']}")
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append(["⏭ Пропустить", "📊 Статистика", "⚙️ Настройки"])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
 def settings_kb(user) -> InlineKeyboardMarkup:
@@ -51,11 +59,10 @@ pending: dict[int, str] = {}
 
 HELP = (
     "🔥 <b>Habit Tracker Bot</b>\n\n"
-    "Кнопки внизу — всё управление:\n"
-    "✅ Отметить — отметить выполнение\n"
+    "Кнопки внизу — твои привычки:\n"
+    "жми на привычку — отметил ✅\n\n"
     "⏭ Пропустить — пропустить день без разрыва стрика\n"
     "📊 Статистика — стрики и прогресс\n"
-    "📋 Привычки — список на сегодня\n"
     "⚙️ Настройки — добавить/удалить привычку, время напоминания"
 )
 
@@ -77,11 +84,11 @@ def parse_emoji_and_name(raw: str) -> tuple[str, str]:
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     u = update.effective_user
-    db.get_or_create_user(u.id, u.username, u.first_name)
+    user = db.get_or_create_user(u.id, u.username, u.first_name)
     await update.message.reply_text(
-        f"👋 Привет, {u.first_name or 'друг'}! Отмечай привычки кнопками ниже.\n\n{HELP}",
+        f"👋 Привет, {u.first_name or 'друг'}! Жми на привычку — отметим.\n\n{HELP}",
         parse_mode="HTML",
-        reply_markup=MAIN_KB,
+        reply_markup=build_main_kb(user["id"], user["timezone"]),
     )
 
 
@@ -262,7 +269,8 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return
         habit = db.add_habit(user["id"], name, emoji)
         await update.message.reply_text(
-            f"✅ Добавлено: {habit['emoji']} {habit['name']}", reply_markup=settings_kb(user)
+            f"✅ Добавлено: {habit['emoji']} {habit['name']}\nЖми на неё в меню, чтобы отметить 👇",
+            reply_markup=build_main_kb(user["id"], user["timezone"]),
         )
         return
 
@@ -280,29 +288,32 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     today = today_key(user["timezone"])
-    if text == "✅ Отметить":
-        kb = habits_kb(user["id"], "done", today)
-        if kb.to_dict()["inline_keyboard"]:
-            await update.message.reply_text("✅ Что отметил?", reply_markup=kb)
-        else:
-            await update.message.reply_text("🎉 Сегодня уже всё отмечено!")
-    elif text == "⏭ Пропустить":
+
+    for h in db.list_habits(user["id"]):
+        label = f"{h['emoji']} {h['name']}"
+        if text in (label, f"✅ {label}", f"⏭ {label}"):
+            if db.status_for_date(h["id"], today) == "done":
+                await update.message.reply_text(
+                    f"👍 {label} уже отмечена", reply_markup=build_main_kb(user["id"], user["timezone"])
+                )
+                return
+            db.checkin(user["id"], h["id"], today)
+            streak = next(
+                (r["current_streak"] for r in db.user_stats(user["id"], user["timezone"])["rows"] if r["habit"]["id"] == h["id"]),
+                1,
+            )
+            msg = f"✅ {label} отмечена!"
+            if streak > 1:
+                msg += f" 🔥 {streak} дн. подряд"
+            await update.message.reply_text(msg, reply_markup=build_main_kb(user["id"], user["timezone"]))
+            return
+
+    if text == "⏭ Пропустить":
         kb = habits_kb(user["id"], "skip", today)
         if kb.to_dict()["inline_keyboard"]:
             await update.message.reply_text("⏭ Что пропустить?", reply_markup=kb)
         else:
             await update.message.reply_text("👍 Все привычки уже пропущены или отмечены")
-    elif text == "📋 Привычки":
-        habits = db.list_habits(user["id"])
-        if not habits:
-            await update.message.reply_text("😴 Пока пусто. Зайди в ⚙️ Настройки → ➕ Добавить")
-            return
-        lines = []
-        for i, h in enumerate(habits, 1):
-            status = db.status_for_date(h["id"], today)
-            mark = {"done": "✅", "skip": "⏭", "none": "⬜"}[status]
-            lines.append(f"{i}. {mark} {h['emoji']} {h['name']}")
-        await update.message.reply_text(f"📋 Твои привычки ({today}):\n\n" + "\n".join(lines))
     elif text == "📊 Статистика":
         stats = db.user_stats(user["id"], user["timezone"])
         rows = stats["rows"]
@@ -376,9 +387,15 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return
         db.skip(user["id"], habit["id"], today)
         await q.edit_message_text(f"⏭ {habit['emoji']} {habit['name']} — пропущена, стрик цел")
+        await ctx.bot.send_message(
+            chat_id=u.id, text="Меню обновлено 👇", reply_markup=build_main_kb(user["id"], user["timezone"])
+        )
     elif action == "del":
         db.delete_habit(user["id"], habit["id"])
         await q.edit_message_text(f"🗑 Удалено: {habit['emoji']} {habit['name']}")
+        await ctx.bot.send_message(
+            chat_id=u.id, text="Меню обновлено 👇", reply_markup=build_main_kb(user["id"], user["timezone"])
+        )
 
 
 async def cmd_adminstats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
