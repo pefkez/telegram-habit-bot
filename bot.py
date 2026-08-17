@@ -22,6 +22,8 @@ import db
 from timeutil import hm_now, today_key
 
 load_dotenv()
+for _pv in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+    os.environ.pop(_pv, None)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0) or 0)
 
