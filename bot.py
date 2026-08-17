@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -38,11 +39,11 @@ def greet_text_and_kb(user_id: int, today: str):
     left = 0
     for h in habits:
         status = db.status_for_date(h["id"], today)
-        mark = {"done": "✅", "skip": "⏭", "none": "⬜"}[status]
+        mark = {"done": "🟢", "skip": "⏭", "none": "🔴"}[status]
         lines.append(f"{mark} {h['emoji']} {h['name']}")
         if status == "none":
             left += 1
-        rows.append([InlineKeyboardButton(f"✅ {h['emoji']} {h['name']}", callback_data=f"greet:{h['id']}")])
+        rows.append([InlineKeyboardButton(f"{mark} {h['emoji']} {h['name']}", callback_data=f"greet:{h['id']}")])
     lines.append("")
     lines.append("Отметь выполненные привычки ниже 👇" if left else "🎉 День закрыт! 🔥")
     rows.append(
@@ -56,24 +57,48 @@ def greet_text_and_kb(user_id: int, today: str):
     return text, InlineKeyboardMarkup(rows)
 
 
+MONTHS = ["", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+
+
+def month_calendar(habit_id: int, tz: str, today: str) -> str:
+    d = datetime.strptime(today, "%Y-%m-%d")
+    year, month = d.year, d.month
+    next_month = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+    days_in_month = (next_month - timedelta(days=1)).day
+    leading = datetime(year, month, 1).weekday()
+    cells = ["  ·"] * leading
+    for day in range(1, days_in_month + 1):
+        key = f"{year}-{month:02d}-{day:02d}"
+        if key > today:
+            mark = "⬜"
+        else:
+            mark = {"done": "🟢", "skip": "⏭", "none": "🔴"}[db.status_for_date(habit_id, key)]
+        cells.append(f"{day:>2}{mark}")
+    lines = []
+    for i in range(0, len(cells), 7):
+        lines.append(" ".join(cells[i : i + 7]))
+    return "\n".join(lines)
+
+
 def stats_text(user) -> str:
     stats = db.user_stats(user["id"], user["timezone"])
     rows = stats["rows"]
     if not rows:
         return "😴 Добавь привычку — появится статистика: ⚙️ Настройки → ➕ Добавить"
-    week_done = sum(r["done7"] for r in rows)
-    week_total = 7 * len(rows)
-    week_pct = round(week_done / week_total * 100) if week_total else 0
-    done_today = sum(1 for r in rows if r["today"] == "done")
-    lines = [f"📊 Статистика ({stats['today']})", "", f"Сегодня: {done_today}/{len(rows)} · неделя: {week_pct}%", ""]
+    today = stats["today"]
+    d = datetime.strptime(today, "%Y-%m-%d")
+    lines = [f"📊 Статистика · {MONTHS[d.month]} {d.year}", ""]
     for r in rows:
         h = r["habit"]
-        today_mark = {"done": "✅", "skip": "⏭", "none": "⬜"}[r["today"]]
         lines.append(
-            f"{today_mark} {h['emoji']} {h['name']}\n"
-            f"   🔥 стрик: {r['current_streak']} дн. · 🏆 лучший: {r['best_streak']} · "
-            f"📅 за 30 дн.: {r['done30']}/30 · ⏭ пропусков: {r['skips30']}"
+            f"{h['emoji']} {h['name']}\n"
+            f"🔥 Стрик: {r['current_streak']} дн. · 🏆 Рекорд: {r['best_streak']} дн.\n"
+            f"⏭ Пропусков: {r['skips30']} · ✅ Отметок: {r['done30']}/30"
         )
+        lines.append("")
+        lines.append(month_calendar(h["id"], user["timezone"], today))
+        lines.append("")
+    lines.append("🟢 выполнено · 🔴 не выполнено · ⏭ пропущено · ⬜ ещё не наступил")
     return "\n".join(lines)
 
 
@@ -148,7 +173,7 @@ async def cmd_habits(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     lines = []
     for i, h in enumerate(habits, 1):
         status = db.status_for_date(h["id"], today)
-        mark = {"done": "✅", "skip": "⏭", "none": "⬜"}[status]
+        mark = {"done": "🟢", "skip": "⏭", "none": "🔴"}[status]
         lines.append(f"{i}. {mark} {h['emoji']} {h['name']}")
     await update.message.reply_text(f"📋 Привычки на сегодня ({today}):\n\n" + "\n".join(lines))
 
@@ -246,32 +271,7 @@ async def cmd_remind(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     u = update.effective_user
     user = db.get_or_create_user(u.id, u.username, u.first_name)
-    stats = db.user_stats(user["id"], user["timezone"])
-    rows = stats["rows"]
-    if not rows:
-        await update.message.reply_text("😴 Добавь привычку — появится статистика: /add 🏃 Бег")
-        return
-
-    week_done = sum(r["done7"] for r in rows)
-    week_total = 7 * len(rows)
-    week_pct = round(week_done / week_total * 100) if week_total else 0
-    done_today = sum(1 for r in rows if r["today"] == "done")
-
-    lines = [
-        f"📊 Статистика ({stats['today']})",
-        "",
-        f"Сегодня: {done_today}/{len(rows)} · неделя: {week_pct}%",
-        "",
-    ]
-    for r in rows:
-        h = r["habit"]
-        today_mark = {"done": "✅", "skip": "⏭", "none": "⬜"}[r["today"]]
-        lines.append(
-            f"{today_mark} {h['emoji']} {h['name']}\n"
-            f"   🔥 стрик: {r['current_streak']} дн. · 🏆 лучший: {r['best_streak']} · "
-            f"📅 за 30 дн.: {r['done30']}/30 · ⏭ пропусков: {r['skips30']}"
-        )
-    await update.message.reply_text("\n".join(lines))
+    await update.message.reply_text(stats_text(user))
 
 
 def habits_kb(user_id: int, action: str, today: str) -> InlineKeyboardMarkup:
