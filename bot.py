@@ -328,13 +328,15 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     state = pending.get(u.id)
     if state == "awaiting_add":
-        del pending[u.id]
+        prompt_id = pending_msg.pop(u.id, None)
         emoji, name = parse_emoji_and_name(text)
         if not name:
             await update.message.reply_text("✏️ Напиши название, например 🏃 Бег")
+            await delete_pair(ctx, u.id, prompt_id, update.message.message_id)
             return
-        habit = db.add_habit(user["id"], name, emoji)
-        await update.message.reply_text(f"✅ Добавлено: {habit_title(habit)}")
+        del pending[u.id]
+        db.add_habit(user["id"], name, emoji)
+        await delete_pair(ctx, u.id, prompt_id, update.message.message_id)
         text, kb = greet_text_and_kb(user["id"], today_key(user["timezone"]), user["timezone"])
         await update.message.reply_text(text, reply_markup=kb)
         return
@@ -380,6 +382,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         action = q.data.split(":", 1)[1]
         if action == "add":
             pending[u.id] = "awaiting_add"
+            pending_msg[u.id] = q.message.message_id
             await q.edit_message_text("✏️ Напиши название привычки, например 🏃 Бег")
         elif action == "del":
             kb = habits_kb(user["id"], "del", today_key(user["timezone"]))
@@ -458,7 +461,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await ctx.bot.send_message(chat_id=u.id, text=text, reply_markup=kb)
     elif action == "del":
         db.delete_habit(user["id"], habit["id"])
-        await q.edit_message_text(f"🗑 Удалено: {habit_title(habit)}")
+        await q.message.delete()
         text, kb = greet_text_and_kb(user["id"], today, user["timezone"])
         await ctx.bot.send_message(chat_id=u.id, text=text, reply_markup=kb)
 
